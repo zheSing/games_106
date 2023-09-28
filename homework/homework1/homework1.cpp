@@ -841,7 +841,7 @@ public:
 				renderPassBeginInfo.renderArea.extent.height = height;
 				renderPassBeginInfo.clearValueCount = 2;
 				renderPassBeginInfo.pClearValues = clearValues;
-				renderPassBeginInfo.framebuffer = frameBuffers = ;
+				renderPassBeginInfo.framebuffer = offscreenPass.framBuffer;
 
 				vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -1146,18 +1146,19 @@ public:
 		imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
 		imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
 		imageCI.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-		VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &offscreenPass.color.image));
-			
-		VkMemoryRequirements memReqs{};
-		vkGetImageMemoryRequirements(device, offscreenPass.color.image, &memReqs);
 
 		VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
+		VkMemoryRequirements memReqs{};
+
+		VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &offscreenPass.color.image));
+		vkGetImageMemoryRequirements(device, offscreenPass.color.image, &memReqs);
+
 		memAlloc.allocationSize = memReqs.size;
 		memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 		VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &offscreenPass.color.mem));
 		VK_CHECK_RESULT(vkBindImageMemory(device, offscreenPass.color.image, offscreenPass.color.mem, 0));
 
-		VkImageViewCreateInfo imageViewCI{};
+		VkImageViewCreateInfo imageViewCI = vks::initializers::imageViewCreateInfo();
 		//imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		imageViewCI.image = offscreenPass.color.image;
@@ -1196,7 +1197,7 @@ public:
 		VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &offscreenPass.depth.mem));
 		VK_CHECK_RESULT(vkBindImageMemory(device, offscreenPass.depth.image, offscreenPass.depth.mem, 0));
 
-		VkImageViewCreateInfo depthImageViewCI{};
+		VkImageViewCreateInfo depthImageViewCI = vks::initializers::imageViewCreateInfo();
 		//depthImageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		depthImageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		depthImageViewCI.image = offscreenPass.depth.image;
@@ -1209,10 +1210,10 @@ public:
 		depthImageViewCI.subresourceRange.layerCount = 1;
 		depthImageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 		// Stencil aspect should only be set on depth + stencil formats (VK_FORMAT_D16_UNORM_S8_UINT..VK_FORMAT_D32_SFLOAT_S8_UINT
-		if (depthFormat >= VK_FORMAT_D16_UNORM_S8_UINT) {
+		if (fbDepthFormat >= VK_FORMAT_D16_UNORM_S8_UINT) {
 			depthImageViewCI.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
 		}
-		VK_CHECK_RESULT(vkCreateImageView(device, &depthImageViewCI, nullptr, &depthStencil.view));
+		VK_CHECK_RESULT(vkCreateImageView(device, &depthImageViewCI, nullptr, &offscreenPass.depth.view));
 
 		// attachment
 
@@ -1283,8 +1284,8 @@ public:
 		fbufCreateInfo.renderPass = offscreenPass.renderPass;
 		fbufCreateInfo.attachmentCount = 2;
 		fbufCreateInfo.pAttachments = imageViews;
-		fbufCreateInfo.width = offscreenPass.width;
-		fbufCreateInfo.height = offscreenPass.height;
+		fbufCreateInfo.width = width;
+		fbufCreateInfo.height = height;
 		fbufCreateInfo.layers = 1;
 
 		VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbufCreateInfo, nullptr, &offscreenPass.framBuffer));
