@@ -29,6 +29,8 @@
 
 #define ENABLE_VALIDATION false
 
+#define SUBPASS_TONEMAPPING
+
 // Contains everything required to render a glTF model in Vulkan
 // This class is heavily simplified (compared to glTF's feature set) but retains the basic glTF structure
 class VulkanglTFModel
@@ -761,6 +763,12 @@ public:
 		VkDescriptorImageInfo descriptor;
 	} offscreenPass;
 
+	struct TonemappingSubpass {
+		VkFramebuffer frameBuffer;
+		FrameBufferAttachment color, depth;
+		VkDescriptorImageInfo descriptor;
+	} tonemappingSubpass;
+
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)
 	{
 		title = "homework1";
@@ -829,18 +837,52 @@ public:
 		viewport = vks::initializers::viewport((float)width, (float)height, 0.0f, 1.0f);
 		scissor = vks::initializers::rect2D(width, height, 0, 0);
 
+		VkRenderPassBeginInfo renderPassBeginInfo = vks::initializers::renderPassBeginInfo();
+		renderPassBeginInfo.renderPass = renderPass;
+		renderPassBeginInfo.renderArea.offset.x = 0;
+		renderPassBeginInfo.renderArea.offset.y = 0;
+		renderPassBeginInfo.renderArea.extent.width = width;
+		renderPassBeginInfo.renderArea.extent.height = height;
+		renderPassBeginInfo.clearValueCount = 2;
+		renderPassBeginInfo.pClearValues = clearValues;
+		
+		//// two passes
+
 		for (int32_t i = 0; i < drawCmdBuffers.size(); ++i)
 		{
+#ifdef SUBPASS_TONEMAPPING
+
+			// two subpasses
+
+			VK_CHECK_RESULT(vkBeginCommandBuffer(drawCmdBuffers[i], &cmdBufInfo));
+
+			renderPassBeginInfo.framebuffer = frameBuffers[i];
+
+			vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+			vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+			vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
+
+			// first pass
+			{
+				vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+				vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, wireframe ? pipelines.wireframe : pipelines.solid);
+				glTFModel.draw(drawCmdBuffers[i], pipelineLayout);
+			}
+
+			vkCmdNextSubpass(drawCmdBuffers[i], VK_SUBPASS_CONTENTS_INLINE);
+
+			// second pass
+			{
+				vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, postPipelineLayout, 0, 1, &postDescriptorSet, 0, nullptr);
+				vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.tonemapping);
+				vkCmdDraw(drawCmdBuffers[i], 3, 1, 0, 0);
+			}
+
+			vkCmdEndRenderPass(drawCmdBuffers[i]);
+#else
 			VK_CHECK_RESULT(vkBeginCommandBuffer(drawCmdBuffers[i], &cmdBufInfo));
 			{
-				VkRenderPassBeginInfo renderPassBeginInfo = vks::initializers::renderPassBeginInfo();
-				renderPassBeginInfo.renderPass = offscreenPass.renderPass;
-				renderPassBeginInfo.renderArea.offset.x = 0;
-				renderPassBeginInfo.renderArea.offset.y = 0;
-				renderPassBeginInfo.renderArea.extent.width = width;
-				renderPassBeginInfo.renderArea.extent.height = height;
-				renderPassBeginInfo.clearValueCount = 2;
-				renderPassBeginInfo.pClearValues = clearValues;
 				renderPassBeginInfo.framebuffer = offscreenPass.framBuffer;
 
 				vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -858,7 +900,6 @@ public:
 
 			// tone mapping
 			{
-
 				VkRenderPassBeginInfo offRenderPassBeginInfo = vks::initializers::renderPassBeginInfo();
 				offRenderPassBeginInfo.renderPass = renderPass;
 				offRenderPassBeginInfo.renderArea.offset.x = 0;
@@ -879,9 +920,12 @@ public:
 				vkCmdEndRenderPass(drawCmdBuffers[i]);
 			}
 
+#endif // SUBPASS_TONEMAPPING
+
 			drawUI(drawCmdBuffers[i]);
 			VK_CHECK_RESULT(vkEndCommandBuffer(drawCmdBuffers[i]));
 		}
+	
 	}
 
 	void loadglTFFile(std::string filename)
@@ -1000,6 +1044,133 @@ public:
 		loadglTFFile(getAssetPath() + "buster_drone/busterDrone.gltf");
 	}
 
+#ifdef SUBPASS_TONEMAPPING
+	void setupRenderPass()
+	{
+		std::array<VkAttachmentDescription, 4> attachments{};
+		
+		// Color attachment
+		attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
+		attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		// Depth attachment
+		attachments[1].format = depthFormat;
+		attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		// another color
+		// Color attachment
+		attachments[2].format = swapChain.colorFormat;
+		attachments[2].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[2].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[2].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[2].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		// another depth
+		attachments[3].format = depthFormat;
+		attachments[3].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[3].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[3].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[3].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachments[3].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		attachments[3].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		VkAttachmentReference colorReference0 = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference depthReference0 = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+		std::array<VkSubpassDescription, 2> subpassDescriptions{};
+		
+		subpassDescriptions[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpassDescriptions[0].colorAttachmentCount = 1;
+		subpassDescriptions[0].pColorAttachments = &colorReference0;
+		subpassDescriptions[0].pDepthStencilAttachment = &depthReference0;
+
+		VkAttachmentReference colorReference1 = { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference depthReference1 = { 3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference inputReference1 = { 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		
+		subpassDescriptions[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpassDescriptions[1].colorAttachmentCount = 1;
+		subpassDescriptions[1].pColorAttachments = &colorReference1;
+		subpassDescriptions[1].pDepthStencilAttachment = &depthReference1;
+		subpassDescriptions[1].inputAttachmentCount = 1;
+		subpassDescriptions[1].pInputAttachments = &inputReference1;
+
+		std::array<VkSubpassDependency, 2> dependencies;
+
+		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[0].dstSubpass = 0;
+		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = 1;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+
+		VkRenderPassCreateInfo renderPassInfo = {};
+		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+		renderPassInfo.pAttachments = attachments.data();
+		renderPassInfo.subpassCount = 2;
+		renderPassInfo.pSubpasses = subpassDescriptions.data();
+		renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+		renderPassInfo.pDependencies = dependencies.data();
+
+		VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
+
+	}
+	
+	void setupFrameBuffer()
+	{
+		VkImageView attachments[4];
+
+		VkFramebufferCreateInfo frameBufferCreateInfo = {};
+		frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		frameBufferCreateInfo.pNext = NULL;
+		frameBufferCreateInfo.renderPass = renderPass;
+		frameBufferCreateInfo.attachmentCount = 4;
+		frameBufferCreateInfo.pAttachments = attachments;
+		frameBufferCreateInfo.width = width;
+		frameBufferCreateInfo.height = height;
+		frameBufferCreateInfo.layers = 1;
+
+		// Create frame buffers for every swap chain image
+		frameBuffers.resize(swapChain.imageCount);
+		for (uint32_t i = 0; i < frameBuffers.size(); i++)
+		{
+			attachments[0] = tonemappingSubpass.color.view;
+			attachments[1] = depthStencil.view;
+			attachments[2] = swapChain.buffers[i].view;
+			attachments[3] = tonemappingSubpass.depth.view;
+			VK_CHECK_RESULT(vkCreateFramebuffer(device, &frameBufferCreateInfo, nullptr, &frameBuffers[i]));
+		}
+	}
+#endif // SUBPASS_TONEMAPPING
+
+
 	void setupDescriptors()
 	{
 		/*
@@ -1009,13 +1180,15 @@ public:
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1),
 			// One combined image sampler per model image/texture
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(5 * glTFModel.materials.size()+1)),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(5 * glTFModel.materials.size() + 1)),
 			// One ssbo
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1),
+			//
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1),
 		};
 
 		// One set for matrices and one per model image/texture
-		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 6;
+		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 7;
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, maxSetCount);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
@@ -1044,7 +1217,11 @@ public:
 		descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
 		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.transformMatrices));
 
+#ifdef SUBPASS_TONEMAPPING
+		setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+#else
 		setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+#endif // SUBPASS_TONEMAPPING	
 		descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
 		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.post));
 
@@ -1080,9 +1257,16 @@ public:
 		{
 			VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.post, 1);
 			VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &postDescriptorSet));
+
+#ifdef SUBPASS_TONEMAPPING
+			std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+				vks::initializers::writeDescriptorSet(postDescriptorSet, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 0, &offscreenPass.descriptor)
+			};
+#else
 			std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 				vks::initializers::writeDescriptorSet(postDescriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, &offscreenPass.descriptor)
 			};
+#endif
 			vkUpdateDescriptorSets(device, 1, writeDescriptorSets.data(), 0, nullptr);
 		}
 
@@ -1122,7 +1306,116 @@ public:
 		//	VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(material.materialFactors.descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &material.materialFactors.buffer.descriptor);
 		//	vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
 		//}
+	}
 
+	void prepareSubpass()
+	{
+		auto& color = tonemappingSubpass.color;
+		auto& depth = tonemappingSubpass.depth;
+
+		VkFormat fbDepthFormat;
+		VkBool32 validDepthFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &fbDepthFormat);
+		assert(validDepthFormat);
+
+		VkImageCreateInfo imageCI = vks::initializers::imageCreateInfo();
+		//imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageCI.imageType = VK_IMAGE_TYPE_2D;
+		imageCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+		imageCI.extent.width = width;
+		imageCI.extent.height = height;
+		imageCI.extent.depth = 1;
+		imageCI.mipLevels = 1;
+		imageCI.arrayLayers = 1;
+		imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imageCI.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+		VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
+		VkMemoryRequirements memReqs{};
+
+		VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &color.image));
+		vkGetImageMemoryRequirements(device, color.image, &memReqs);
+
+		memAlloc.allocationSize = memReqs.size;
+		memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &color.mem));
+		VK_CHECK_RESULT(vkBindImageMemory(device, color.image, color.mem, 0));
+
+		VkImageViewCreateInfo imageViewCI = vks::initializers::imageViewCreateInfo();
+		//imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCI.image = color.image;
+		imageViewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+		imageViewCI.subresourceRange.baseMipLevel = 0;
+		imageViewCI.subresourceRange.levelCount = 1;
+		imageViewCI.subresourceRange.baseArrayLayer = 0;
+		imageViewCI.subresourceRange.layerCount = 1;
+		imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		VK_CHECK_RESULT(vkCreateImageView(device, &imageViewCI, nullptr, &color.view));
+
+		// why need sampler?
+		//VkSamplerCreateInfo samplerInfo = vks::initializers::samplerCreateInfo();
+		//samplerInfo.magFilter = VK_FILTER_LINEAR;
+		//samplerInfo.minFilter = VK_FILTER_LINEAR;
+		//samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		//auto addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		//samplerInfo.addressModeU = addressMode;
+		//samplerInfo.addressModeV = addressMode;
+		//samplerInfo.addressModeW = addressMode;
+		//samplerInfo.mipLodBias = 0.0f;
+		//samplerInfo.maxAnisotropy = 1.0f;
+		//samplerInfo.minLod = 0.0f;
+		//samplerInfo.maxLod = 1.0f;
+		//samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+		//VK_CHECK_RESULT(vkCreateSampler(device, &samplerInfo, nullptr, &offscreenPass.sampler));
+
+		imageCI.format = fbDepthFormat;
+		imageCI.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+		VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &depth.image));
+		vkGetImageMemoryRequirements(device, depth.image, &memReqs);
+		memAlloc.allocationSize = memReqs.size;
+		memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &depth.mem));
+		VK_CHECK_RESULT(vkBindImageMemory(device, depth.image, depth.mem, 0));
+
+		VkImageViewCreateInfo depthImageViewCI = vks::initializers::imageViewCreateInfo();
+		//depthImageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		depthImageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		depthImageViewCI.image = depth.image;
+		depthImageViewCI.format = fbDepthFormat;
+		depthImageViewCI.flags = 0;
+		depthImageViewCI.subresourceRange = {};
+		depthImageViewCI.subresourceRange.baseMipLevel = 0;
+		depthImageViewCI.subresourceRange.levelCount = 1;
+		depthImageViewCI.subresourceRange.baseArrayLayer = 0;
+		depthImageViewCI.subresourceRange.layerCount = 1;
+		depthImageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		// Stencil aspect should only be set on depth + stencil formats (VK_FORMAT_D16_UNORM_S8_UINT..VK_FORMAT_D32_SFLOAT_S8_UINT
+		if (fbDepthFormat >= VK_FORMAT_D16_UNORM_S8_UINT) {
+			depthImageViewCI.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+		VK_CHECK_RESULT(vkCreateImageView(device, &depthImageViewCI, nullptr, &depth.view));
+
+
+		//VkImageView imageViews[2];
+		//imageViews[0] = color.view;
+		//imageViews[1] = depth.view;
+
+		//VkFramebufferCreateInfo fbufCreateInfo = vks::initializers::framebufferCreateInfo();
+		//fbufCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+		//fbufCreateInfo.renderPass = renderPass;
+		//fbufCreateInfo.attachmentCount = 2;
+		//fbufCreateInfo.pAttachments = imageViews;
+		//fbufCreateInfo.width = width;
+		//fbufCreateInfo.height = height;
+		//fbufCreateInfo.layers = 1;
+
+		//VK_CHECK_RESULT(vkCreateFramebuffer(device, &fbufCreateInfo, nullptr, &offscreenPass.framBuffer));
+
+		offscreenPass.descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		offscreenPass.descriptor.imageView = tonemappingSubpass.color.view;
+		//offscreenPass.descriptor.sampler = offscreenPass.sampler;
 	}
 
 	void prepareOffscreen()
@@ -1342,7 +1635,11 @@ public:
 		pipelineCI.stageCount = static_cast<uint32_t>(shaderStages.size());
 		pipelineCI.pStages = shaderStages.data();
 
+#ifdef SUBPASS_TONEMAPPING
+		pipelineCI.renderPass = renderPass;
+#else
 		pipelineCI.renderPass = offscreenPass.renderPass;
+#endif // SUBPASS_TONEMAPPING
 
 		// Solid rendering pipeline
 		VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &pipelineCI, nullptr, &pipelines.solid));
@@ -1445,7 +1742,11 @@ public:
 		VulkanExampleBase::prepare();
 		loadAssets();
 		prepareUniformBuffers();
+#ifdef  SUBPASS_TONEMAPPING
+		prepareSubpass();
+#else 
 		prepareOffscreen();
+#endif //  SUBPASS_TONEMAPPING
 		setupDescriptors();
 		preparePipelines();
 		buildCommandBuffers();
