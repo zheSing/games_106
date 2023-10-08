@@ -1060,7 +1060,7 @@ public:
 	{
 		prepareSubpass();
 
-		std::array<VkAttachmentDescription, 4> attachments{};
+		std::array<VkAttachmentDescription, 3> attachments{};
 		
 		// Color attachment
 		attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -1094,14 +1094,14 @@ public:
 		attachments[2].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 		// another depth
-		attachments[3].format = depthFormat;
-		attachments[3].samples = VK_SAMPLE_COUNT_1_BIT;
-		attachments[3].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachments[3].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachments[3].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachments[3].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachments[3].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		//attachments[3].format = depthFormat;
+		//attachments[3].samples = VK_SAMPLE_COUNT_1_BIT;
+		//attachments[3].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		//attachments[3].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		//attachments[3].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+		//attachments[3].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		//attachments[3].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		//attachments[3].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkAttachmentReference colorReference0 = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference depthReference0 = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
@@ -1114,7 +1114,7 @@ public:
 		subpassDescriptions[0].pDepthStencilAttachment = &depthReference0;
 
 		VkAttachmentReference colorReference1 = { 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-		VkAttachmentReference depthReference1 = { 3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+		VkAttachmentReference depthReference1 = { 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
 		VkAttachmentReference inputReference1 = { 0, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		
 		subpassDescriptions[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -1164,7 +1164,7 @@ public:
 		frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		frameBufferCreateInfo.pNext = NULL;
 		frameBufferCreateInfo.renderPass = renderPass;
-		frameBufferCreateInfo.attachmentCount = 4;
+		frameBufferCreateInfo.attachmentCount = 3;
 		frameBufferCreateInfo.pAttachments = attachments;
 		frameBufferCreateInfo.width = width;
 		frameBufferCreateInfo.height = height;
@@ -1177,7 +1177,7 @@ public:
 			attachments[0] = tonemappingSubpass.color.view;
 			attachments[1] = depthStencil.view;
 			attachments[2] = swapChain.buffers[i].view;
-			attachments[3] = tonemappingSubpass.depth.view;
+			//attachments[3] = tonemappingSubpass.depth.view;
 			VK_CHECK_RESULT(vkCreateFramebuffer(device, &frameBufferCreateInfo, nullptr, &frameBuffers[i]));
 		}
 	}
