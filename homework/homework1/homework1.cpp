@@ -781,6 +781,16 @@ public:
 
 	~VulkanExample()
 	{
+#ifdef SUBPASS_TONEMAPPING
+
+		vkDestroyImageView(device, tonemappingSubpass.color.view, nullptr);
+		vkDestroyImage(device, tonemappingSubpass.color.image, nullptr);
+		vkFreeMemory(device, tonemappingSubpass.color.mem, nullptr);
+
+		vkDestroyImageView(device, tonemappingSubpass.depth.view, nullptr);
+		vkDestroyImage(device, tonemappingSubpass.depth.image, nullptr);
+		vkFreeMemory(device, tonemappingSubpass.depth.mem, nullptr);
+#else
 
 		//auto framebuff = offscreenPass.framBuffer;
 		vkDestroyImageView(device, offscreenPass.color.view, nullptr);
@@ -794,6 +804,7 @@ public:
 		vkDestroyFramebuffer(device, offscreenPass.framBuffer, nullptr);
 		vkDestroySampler(device, offscreenPass.sampler, nullptr);
 		vkDestroyRenderPass(device, offscreenPass.renderPass, nullptr);
+#endif // SUBPASS_TONEMAPPING
 
 		// Clean up used Vulkan resources
 		// Note : Inherited destructor cleans up resources stored in base class
