@@ -1047,6 +1047,8 @@ public:
 #ifdef SUBPASS_TONEMAPPING
 	void setupRenderPass()
 	{
+		prepareSubpass();
+
 		std::array<VkAttachmentDescription, 4> attachments{};
 		
 		// Color attachment
@@ -1743,7 +1745,7 @@ public:
 		loadAssets();
 		prepareUniformBuffers();
 #ifdef  SUBPASS_TONEMAPPING
-		prepareSubpass();
+		//prepareSubpass();
 #else 
 		prepareOffscreen();
 #endif //  SUBPASS_TONEMAPPING
