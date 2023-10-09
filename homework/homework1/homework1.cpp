@@ -749,9 +749,9 @@ public:
 	} descriptorSetLayouts;
 
 	struct FrameBufferAttachment {
-		VkImage image;
-		VkDeviceMemory mem;
-		VkImageView view;
+		VkImage image = VK_NULL_HANDLE;
+		VkDeviceMemory mem = VK_NULL_HANDLE;
+		VkImageView view = VK_NULL_HANDLE;
 	};
 
 	struct OffscreenPass {
@@ -766,6 +766,7 @@ public:
 	struct TonemappingSubpass {
 		VkFramebuffer frameBuffer;
 		FrameBufferAttachment color, depth;
+		uint32_t width, height;
 		VkDescriptorImageInfo descriptor;
 	} tonemappingSubpass;
 
@@ -1058,6 +1059,9 @@ public:
 #ifdef SUBPASS_TONEMAPPING
 	void setupRenderPass()
 	{
+		tonemappingSubpass.width = width;
+		tonemappingSubpass.height = height;
+
 		prepareSubpass();
 
 		std::array<VkAttachmentDescription, 3> attachments{};
@@ -1155,9 +1159,78 @@ public:
 		VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
 
 	}
+
+	void clearAttachment(FrameBufferAttachment& attachment)
+	{
+		vkDestroyImageView(device, attachment.view, nullptr);
+		vkDestroyImage(device, attachment.image, nullptr);
+		vkFreeMemory(device, attachment.mem, nullptr);
+	}
+
+	void createTonemappingAttachments()
+	{
+		if (offscreenPass.color.image != VK_NULL_HANDLE) {
+			clearAttachment(offscreenPass.color);
+		}
+
+		auto& color = tonemappingSubpass.color;
+
+		VkFormat fbDepthFormat;
+		VkBool32 validDepthFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &fbDepthFormat);
+		assert(validDepthFormat);
+
+		VkImageCreateInfo imageCI = vks::initializers::imageCreateInfo();
+		//imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageCI.imageType = VK_IMAGE_TYPE_2D;
+		imageCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+		imageCI.extent.width = width;
+		imageCI.extent.height = height;
+		imageCI.extent.depth = 1;
+		imageCI.mipLevels = 1;
+		imageCI.arrayLayers = 1;
+		imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
+		imageCI.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
+
+		VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
+		VkMemoryRequirements memReqs{};
+
+		VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &color.image));
+		vkGetImageMemoryRequirements(device, color.image, &memReqs);
+
+		memAlloc.allocationSize = memReqs.size;
+		memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &color.mem));
+		VK_CHECK_RESULT(vkBindImageMemory(device, color.image, color.mem, 0));
+
+		VkImageViewCreateInfo imageViewCI = vks::initializers::imageViewCreateInfo();
+		//imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCI.image = color.image;
+		imageViewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
+		imageViewCI.subresourceRange.baseMipLevel = 0;
+		imageViewCI.subresourceRange.levelCount = 1;
+		imageViewCI.subresourceRange.baseArrayLayer = 0;
+		imageViewCI.subresourceRange.layerCount = 1;
+		imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		VK_CHECK_RESULT(vkCreateImageView(device, &imageViewCI, nullptr, &color.view));
+
+		offscreenPass.descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		offscreenPass.descriptor.imageView = tonemappingSubpass.color.view;
+	}
 	
 	void setupFrameBuffer()
 	{
+		if (tonemappingSubpass.width != width || tonemappingSubpass.height != height) {
+			tonemappingSubpass.width = width;
+			tonemappingSubpass.height = height;
+			createTonemappingAttachments();
+			std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+				vks::initializers::writeDescriptorSet(postDescriptorSet, VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 0, &offscreenPass.descriptor)
+			};
+			vkUpdateDescriptorSets(device, 1, writeDescriptorSets.data(), 0, nullptr);
+		}
+
 		VkImageView attachments[4];
 
 		VkFramebufferCreateInfo frameBufferCreateInfo = {};
@@ -1180,6 +1253,9 @@ public:
 			//attachments[3] = tonemappingSubpass.depth.view;
 			VK_CHECK_RESULT(vkCreateFramebuffer(device, &frameBufferCreateInfo, nullptr, &frameBuffers[i]));
 		}
+
+		offscreenPass.descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		offscreenPass.descriptor.imageView = tonemappingSubpass.color.view;
 	}
 #endif // SUBPASS_TONEMAPPING
 
