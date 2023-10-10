@@ -1062,8 +1062,6 @@ public:
 		tonemappingSubpass.width = width;
 		tonemappingSubpass.height = height;
 
-		prepareSubpass();
-
 		std::array<VkAttachmentDescription, 3> attachments{};
 		
 		// Color attachment
@@ -1158,6 +1156,8 @@ public:
 
 		VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
 
+		prepareSubpass();
+
 	}
 
 	void clearAttachment(FrameBufferAttachment& attachment)
@@ -1233,10 +1233,12 @@ public:
 
 		VkImageView attachments[4];
 
+		VkRenderPass tmp{};
+
 		VkFramebufferCreateInfo frameBufferCreateInfo = {};
 		frameBufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 		frameBufferCreateInfo.pNext = NULL;
-		frameBufferCreateInfo.renderPass = renderPass;
+		frameBufferCreateInfo.renderPass = tmp;
 		frameBufferCreateInfo.attachmentCount = 3;
 		frameBufferCreateInfo.pAttachments = attachments;
 		frameBufferCreateInfo.width = width;
