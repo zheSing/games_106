@@ -1714,7 +1714,9 @@ public:
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
 
-		VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayout, offscreenPass.renderPass, 0);
+		VkRenderPass tmp{};
+
+		VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayout, tmp, 0);
 		pipelineCI.pVertexInputState = &vertexInputStateCI;
 		pipelineCI.pInputAssemblyState = &inputAssemblyStateCI;
 		pipelineCI.pRasterizationState = &rasterizationStateCI;
@@ -1727,7 +1729,7 @@ public:
 		pipelineCI.pStages = shaderStages.data();
 
 #ifdef SUBPASS_TONEMAPPING
-		pipelineCI.renderPass = renderPass;
+		//pipelineCI.renderPass = renderPass;
 #else
 		pipelineCI.renderPass = offscreenPass.renderPass;
 #endif // SUBPASS_TONEMAPPING
