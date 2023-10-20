@@ -22,6 +22,20 @@ public:
 		VkImageView view;
 	} shadingRateImage;
 
+	struct FrameBufferAttachment {
+		VkImage image = VK_NULL_HANDLE;
+		VkDeviceMemory mem = VK_NULL_HANDLE;
+		VkImageView view = VK_NULL_HANDLE;
+	};
+
+	struct PreDepthPass {
+		uint32_t width, height;
+		VkFramebuffer frameBuffer;
+		FrameBufferAttachment color, depth;
+		VkRenderPass renderPass;
+		VkDescriptorImageInfo descriptor;
+	} preDepthPass;
+
 	bool enableShadingRate = true;
 	bool colorShadingRate = false;
 
@@ -68,4 +82,6 @@ public:
 	void prepare();
 	virtual void render();
 	virtual void OnUpdateUIOverlay(vks::UIOverlay* overlay);
+	void preparePreDepth();
+	void createPreDepthPipeline();
 };
