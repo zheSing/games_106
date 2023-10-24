@@ -60,7 +60,7 @@ void VulkanExample::handleResize()
 	resized = false;
 }
 
-void VulkanExample::preparePreDepth()
+void VulkanExample::preparePreDepthPass()
 {
 	preDepthPass.width = width;
 	preDepthPass.height = height;
@@ -69,47 +69,94 @@ void VulkanExample::preparePreDepth()
 	VkBool32 validDepthFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &fbDepthFormat);
 	assert(validDepthFormat);
 
+	std::array<VkAttachmentDescription, 1> attachments = {};
+	attachments[0].format = fbDepthFormat;
+	attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[0].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	attachments[0].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference depthReference = { 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
+
+	VkSubpassDescription subpassDescription = {};
+	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpassDescription.colorAttachmentCount = 0;
+	subpassDescription.pDepthStencilAttachment = &depthReference;
+
+	std::array<VkSubpassDependency, 1> dependencies;
+
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	renderPassInfo.pAttachments = attachments.data();
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpassDescription;
+	renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+	renderPassInfo.pDependencies = dependencies.data();
+
+	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &preDepthPass.renderPass));
+
+	//VkImageView imageViews[2];
+	//imageViews[0] = preDepthPass.color.view;
+	//imageViews[1] = preDepthPass.depth.view;
+}
+
+void VulkanExample::preparePreDepthImage()
+{
+	/*
+		// for depth pre pass and output as texture
+	std::tie(depth_image, depth_image_memory) = utility.createImage(swap_chain_extent.width, swap_chain_extent.height
+		, depth_format
+		, VK_IMAGE_TILING_OPTIMAL
+		//, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT  // TODO: if creating another depth image for prepass use, use this only for rendering depth image
+		, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+		, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	depth_image_view = utility.createImageView(depth_image.get(), depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
+	utility.transitImageLayout(depth_image.get(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+	*/
+
+
 	VkImageCreateInfo imageCI = vks::initializers::imageCreateInfo();
-	//imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCI.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageCI.imageType = VK_IMAGE_TYPE_2D;
-	imageCI.format = VK_FORMAT_R8G8B8A8_UNORM;
 	imageCI.extent.width = width;
 	imageCI.extent.height = height;
 	imageCI.extent.depth = 1;
 	imageCI.mipLevels = 1;
 	imageCI.arrayLayers = 1;
+
 	imageCI.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageCI.tiling = VK_IMAGE_TILING_OPTIMAL;
-	imageCI.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+	VkFormat fbDepthFormat;
+	VkBool32 validDepthFormat = vks::tools::getSupportedDepthFormat(physicalDevice, &fbDepthFormat);
+	assert(validDepthFormat);
+	imageCI.format = fbDepthFormat;
+
+	imageCI.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
+	imageCI.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	imageCI.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageCI.flags = 0;
+
+	VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &preDepthPass.depth.image));
+
 
 	VkMemoryAllocateInfo memAlloc = vks::initializers::memoryAllocateInfo();
 	VkMemoryRequirements memReqs{};
-
-	VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &preDepthPass.color.image));
-	vkGetImageMemoryRequirements(device, preDepthPass.color.image, &memReqs);
-
-	memAlloc.allocationSize = memReqs.size;
-	memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &preDepthPass.color.mem));
-	VK_CHECK_RESULT(vkBindImageMemory(device, preDepthPass.color.image, preDepthPass.color.mem, 0));
-
-	VkImageViewCreateInfo imageViewCI = vks::initializers::imageViewCreateInfo();
-	//imageViewCI.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	imageViewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	imageViewCI.image = preDepthPass.color.image;
-	imageViewCI.format = VK_FORMAT_R8G8B8A8_UNORM;
-	imageViewCI.subresourceRange.baseMipLevel = 0;
-	imageViewCI.subresourceRange.levelCount = 1;
-	imageViewCI.subresourceRange.baseArrayLayer = 0;
-	imageViewCI.subresourceRange.layerCount = 1;
-	imageViewCI.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	VK_CHECK_RESULT(vkCreateImageView(device, &imageViewCI, nullptr, &preDepthPass.color.view));
-
-	imageCI.format = fbDepthFormat;
-	imageCI.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-	VK_CHECK_RESULT(vkCreateImage(device, &imageCI, nullptr, &preDepthPass.depth.image));
 	vkGetImageMemoryRequirements(device, preDepthPass.depth.image, &memReqs);
+
 	memAlloc.allocationSize = memReqs.size;
 	memAlloc.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	VK_CHECK_RESULT(vkAllocateMemory(device, &memAlloc, nullptr, &preDepthPass.depth.mem));
@@ -132,67 +179,6 @@ void VulkanExample::preparePreDepth()
 		depthImageViewCI.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
 	}
 	VK_CHECK_RESULT(vkCreateImageView(device, &depthImageViewCI, nullptr, &preDepthPass.depth.view));
-
-	std::array<VkAttachmentDescription, 1> attachments = {};
-	//// Color attachment
-	//attachments[0].format = VK_FORMAT_R8G8B8A8_UNORM;
-	//attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
-	//attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	//attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	//attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	//attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	//attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	//attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	// Depth attachment
-	attachments[0].format = fbDepthFormat;
-	attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
-	attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	attachments[0].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-	//VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-	VkAttachmentReference depthReference = { 0, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
-
-	VkSubpassDescription subpassDescription = {};
-	subpassDescription.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpassDescription.colorAttachmentCount = 0;
-	subpassDescription.pDepthStencilAttachment = &depthReference;
-
-	std::array<VkSubpassDependency, 1> dependencies;
-
-	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependencies[0].dstSubpass = 0;
-	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	//dependencies[1].srcSubpass = 0;
-	//dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-	//dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	//dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	//dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	//dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	//dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-	VkRenderPassCreateInfo renderPassInfo = {};
-	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-	renderPassInfo.pAttachments = attachments.data();
-	renderPassInfo.subpassCount = 1;
-	renderPassInfo.pSubpasses = &subpassDescription;
-	renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
-	renderPassInfo.pDependencies = dependencies.data();
-
-	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &preDepthPass.renderPass));
-
-	VkImageView imageViews[2];
-	imageViews[0] = preDepthPass.color.view;
-	imageViews[1] = preDepthPass.depth.view;
 }
 
 void VulkanExample::createPreDepthPipeline()
@@ -210,10 +196,49 @@ void VulkanExample::createPreDepthPipeline()
 	depth_stencil.depthBoundsTestEnable = VK_FALSE;
 	depth_stencil.stencilTestEnable = VK_FALSE;
 
+	VkPipelineInputAssemblyStateCreateInfo inputAssemblyStateCI = vks::initializers::pipelineInputAssemblyStateCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0, VK_FALSE);
+	VkPipelineRasterizationStateCreateInfo rasterizationStateCI = vks::initializers::pipelineRasterizationStateCreateInfo(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, VK_FRONT_FACE_COUNTER_CLOCKWISE, 0);
+	VkPipelineColorBlendAttachmentState blendAttachmentStateCI = vks::initializers::pipelineColorBlendAttachmentState(0xf, VK_FALSE);
+	VkPipelineViewportStateCreateInfo viewportStateCI = vks::initializers::pipelineViewportStateCreateInfo(1, 1, 0);
+	VkPipelineMultisampleStateCreateInfo multisampleStateCI = vks::initializers::pipelineMultisampleStateCreateInfo(VK_SAMPLE_COUNT_1_BIT, 0);
+	const std::vector<VkDynamicState> dynamicStateEnables = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+	VkGraphicsPipelineCreateInfo depth_pipeline_info{};
+	depth_pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	depth_pipeline_info.stageCount = 1;
+	depth_pipeline_info.pStages = shaderStages.data();
+
+	depth_pipeline_info.pVertexInputState = vkglTF::Vertex::getPipelineVertexInputState({ vkglTF::VertexComponent::Position, vkglTF::VertexComponent::Normal });
+	depth_pipeline_info.pInputAssemblyState = &inputAssemblyStateCI;
+	depth_pipeline_info.pRasterizationState = &rasterizationStateCI;
+	depth_pipeline_info.pColorBlendState = nullptr;
+	depth_pipeline_info.pMultisampleState = &multisampleStateCI;
+	depth_pipeline_info.pViewportState = &viewportStateCI;
+	depth_pipeline_info.pDepthStencilState = &depth_stencil;
+	depth_pipeline_info.pDynamicState = nullptr;
+	depth_pipeline_info.stageCount = static_cast<uint32_t>(shaderStages.size());
+	depth_pipeline_info.pStages = shaderStages.data();
+	depth_pipeline_info.renderPass = preDepthPass.renderPass;
+	depth_pipeline_info.layout = pipelineLayout;
+
+	VK_CHECK_RESULT(vkCreateGraphicsPipelines(device, pipelineCache, 1, &depth_pipeline_info, nullptr, &preDepthPass.preDepthPipeline));
 }
 
+void VulkanExample::createPreDepthFrameBuffer()
+{
+	std::array<VkImageView, 1> attachments = { preDepthPass.depth.view };
 
+	VkFramebufferCreateInfo framebuffer_info = {};
+	framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebuffer_info.renderPass = preDepthPass.renderPass;
+	framebuffer_info.attachmentCount = attachments.size();
+	framebuffer_info.pAttachments = attachments.data();
+	framebuffer_info.width = width;
+	framebuffer_info.height = height;
+	framebuffer_info.layers = 1;
 
+	VK_CHECK_RESULT(vkCreateFramebuffer(device, &framebuffer_info, nullptr, &preDepthPass.frameBuffer));
+}
 
 void VulkanExample::buildCommandBuffers()
 {
@@ -305,6 +330,186 @@ void VulkanExample::setupDescriptors()
 		vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor),
 	};
 	vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, nullptr);
+}
+
+// compute
+void VulkanExample::prepareComputeImage(uint32_t width, uint32_t height, VkFormat format)
+{
+	VkFormatProperties formatProperties;
+
+	// Get device properties for the requested texture format
+	vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &formatProperties);
+	// Check if requested image format supports image storage operations
+	assert(formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT);
+
+	// Prepare blit target texture
+	computeTarget.width = width;
+	computeTarget.height = height;
+
+	VkImageCreateInfo imageCreateInfo = vks::initializers::imageCreateInfo();
+	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageCreateInfo.format = format;
+	imageCreateInfo.extent = { width, height, 1 };
+	imageCreateInfo.mipLevels = 1;
+	imageCreateInfo.arrayLayers = 1;
+	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	// Image will be sampled in the fragment shader and used as storage target in the compute shader
+	imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+	imageCreateInfo.flags = 0;
+	// If compute and graphics queue family indices differ, we create an image that can be shared between them
+	// This can result in worse performance than exclusive sharing mode, but save some synchronization to keep the sample simple
+	std::vector<uint32_t> queueFamilyIndices;
+	if (vulkanDevice->queueFamilyIndices.graphics != vulkanDevice->queueFamilyIndices.compute) {
+		queueFamilyIndices = {
+			vulkanDevice->queueFamilyIndices.graphics,
+			vulkanDevice->queueFamilyIndices.compute
+		};
+		imageCreateInfo.sharingMode = VK_SHARING_MODE_CONCURRENT;
+		imageCreateInfo.queueFamilyIndexCount = 2;
+		imageCreateInfo.pQueueFamilyIndices = queueFamilyIndices.data();
+	}
+
+	VkMemoryAllocateInfo memAllocInfo = vks::initializers::memoryAllocateInfo();
+	VkMemoryRequirements memReqs;
+
+	VK_CHECK_RESULT(vkCreateImage(device, &imageCreateInfo, nullptr, &computeTarget.image));
+
+	vkGetImageMemoryRequirements(device, computeTarget.image, &memReqs);
+	memAllocInfo.allocationSize = memReqs.size;
+	memAllocInfo.memoryTypeIndex = vulkanDevice->getMemoryType(memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	VK_CHECK_RESULT(vkAllocateMemory(device, &memAllocInfo, nullptr, &computeTarget.deviceMemory));
+	VK_CHECK_RESULT(vkBindImageMemory(device, computeTarget.image, computeTarget.deviceMemory, 0));
+
+	VkCommandBuffer layoutCmd = vulkanDevice->createCommandBuffer(VK_COMMAND_BUFFER_LEVEL_PRIMARY, true);
+
+	computeTarget.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	vks::tools::setImageLayout(
+		layoutCmd, computeTarget.image,
+		VK_IMAGE_ASPECT_COLOR_BIT,
+		VK_IMAGE_LAYOUT_UNDEFINED,
+		computeTarget.imageLayout);
+
+	vulkanDevice->flushCommandBuffer(layoutCmd, queue, true);
+
+	// Create sampler
+	VkSamplerCreateInfo sampler = vks::initializers::samplerCreateInfo();
+	sampler.magFilter = VK_FILTER_LINEAR;
+	sampler.minFilter = VK_FILTER_LINEAR;
+	sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+	sampler.addressModeV = sampler.addressModeU;
+	sampler.addressModeW = sampler.addressModeU;
+	sampler.mipLodBias = 0.0f;
+	sampler.maxAnisotropy = 1.0f;
+	sampler.compareOp = VK_COMPARE_OP_NEVER;
+	sampler.minLod = 0.0f;
+	sampler.maxLod = computeTarget.mipLevels;
+	sampler.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+	VK_CHECK_RESULT(vkCreateSampler(device, &sampler, nullptr, &computeTarget.sampler));
+
+	// Create image view
+	VkImageViewCreateInfo view = vks::initializers::imageViewCreateInfo();
+	view.image = VK_NULL_HANDLE;
+	view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	view.format = format;
+	view.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+	view.image = computeTarget.image;
+	VK_CHECK_RESULT(vkCreateImageView(device, &view, nullptr, &computeTarget.view));
+
+	// Initialize a descriptor for later use
+	computeTarget.descriptor.imageLayout = computeTarget.imageLayout;
+	computeTarget.descriptor.imageView = computeTarget.view;
+	computeTarget.descriptor.sampler = computeTarget.sampler;
+	computeTarget.device = vulkanDevice;
+}
+
+void VulkanExample::prepareComputePipeline()
+{
+	// Get a compute queue from the device
+	vkGetDeviceQueue(device, vulkanDevice->queueFamilyIndices.compute, 0, &compute.queue);
+	// Create compute pipeline
+		// Compute pipelines are created separate from graphics pipelines even if they use the same queue
+
+	std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings = {
+		// Binding 0: Input image (read-only)
+		vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0),
+		// Binding 1: Input depth (read-only)
+		vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 1),
+		// Binding 2: Output image (write)
+		vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 2),
+	};
+
+	VkDescriptorSetLayoutCreateInfo descriptorLayout = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings);
+	VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorLayout, nullptr, &compute.descriptorSetLayout));
+
+	VkPipelineLayoutCreateInfo pPipelineLayoutCreateInfo = vks::initializers::pipelineLayoutCreateInfo(&compute.descriptorSetLayout, 1);
+
+	VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pPipelineLayoutCreateInfo, nullptr, &compute.pipelineLayout));
+
+	VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &compute.descriptorSetLayout, 1);
+
+	VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &compute.descriptorSet));
+	std::vector<VkWriteDescriptorSet> computeWriteDescriptorSets = {
+		vks::initializers::writeDescriptorSet(compute.descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 0, &textureColorMap.descriptor),
+		vks::initializers::writeDescriptorSet(compute.descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, &textureColorMap.descriptor),
+		vks::initializers::writeDescriptorSet(compute.descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2, &computeTarget.descriptor)
+	};
+	vkUpdateDescriptorSets(device, computeWriteDescriptorSets.size(), computeWriteDescriptorSets.data(), 0, NULL);
+
+	// Create compute shader pipelines
+	VkComputePipelineCreateInfo computePipelineCreateInfo =
+		vks::initializers::computePipelineCreateInfo(compute.pipelineLayout, 0);
+
+	// One pipeline for each effect
+	shaderNames = { "content", "motion" };
+	for (auto& shaderName : shaderNames) {
+		std::string fileName = getHomeworkShadersPath() + "homework2/" + shaderName + ".comp.spv";
+		computePipelineCreateInfo.stage = loadShader(fileName, VK_SHADER_STAGE_COMPUTE_BIT);
+		VkPipeline pipeline;
+		VK_CHECK_RESULT(vkCreateComputePipelines(device, pipelineCache, 1, &computePipelineCreateInfo, nullptr, &pipeline));
+		compute.pipelines.push_back(pipeline);
+	}
+
+	// Separate command pool as queue family for compute may be different than graphics
+	VkCommandPoolCreateInfo cmdPoolInfo = {};
+	cmdPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	cmdPoolInfo.queueFamilyIndex = vulkanDevice->queueFamilyIndices.compute;
+	cmdPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	VK_CHECK_RESULT(vkCreateCommandPool(device, &cmdPoolInfo, nullptr, &compute.commandPool));
+
+	// Create a command buffer for compute operations
+	VkCommandBufferAllocateInfo cmdBufAllocateInfo =
+		vks::initializers::commandBufferAllocateInfo(
+			compute.commandPool,
+			VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+			1);
+
+	VK_CHECK_RESULT(vkAllocateCommandBuffers(device, &cmdBufAllocateInfo, &compute.commandBuffer));
+
+	// Semaphore for compute & graphics sync
+	VkSemaphoreCreateInfo semaphoreCreateInfo = vks::initializers::semaphoreCreateInfo();
+	VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &compute.semaphore));
+
+	// Build a single command buffer containing the compute dispatch commands
+	buildComputeCommandBuffer();
+}
+
+void VulkanExample::buildComputeCommandBuffer()
+{
+	// Flush the queue if we're rebuilding the command buffer after a pipeline change to ensure it's not currently in use
+	vkQueueWaitIdle(compute.queue);
+
+	VkCommandBufferBeginInfo cmdBufInfo = vks::initializers::commandBufferBeginInfo();
+
+	VK_CHECK_RESULT(vkBeginCommandBuffer(compute.commandBuffer, &cmdBufInfo));
+
+	vkCmdBindPipeline(compute.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipelines[compute.pipelineIndex]);
+	vkCmdBindDescriptorSets(compute.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipelineLayout, 0, 1, &compute.descriptorSet, 0, 0);
+
+	vkCmdDispatch(compute.commandBuffer, computeTarget.width / 16, computeTarget.height / 16, 1);
+
+	vkEndCommandBuffer(compute.commandBuffer);
 }
 
 // [POI]

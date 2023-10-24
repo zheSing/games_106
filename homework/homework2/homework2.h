@@ -22,19 +22,40 @@ public:
 		VkImageView view;
 	} shadingRateImage;
 
+	vks::Texture2D computeTarget;
+
 	struct FrameBufferAttachment {
 		VkImage image = VK_NULL_HANDLE;
 		VkDeviceMemory mem = VK_NULL_HANDLE;
 		VkImageView view = VK_NULL_HANDLE;
 	};
 
+	// compute shader
+	std::vector<std::string> shaderNames;
+
+	// Resources for the compute part of the example
+	struct Compute {
+		VkQueue queue;								// Separate queue for compute commands (queue family may differ from the one used for graphics)
+		VkCommandPool commandPool;					// Use a separate command pool (queue family may differ from the one used for graphics)
+		VkCommandBuffer commandBuffer;				// Command buffer storing the dispatch commands and barriers
+		VkSemaphore semaphore;                      // Execution dependency between compute & graphic submission
+		VkDescriptorSetLayout descriptorSetLayout;	// Compute shader binding layout
+		VkDescriptorSet descriptorSet;				// Compute shader bindings
+		VkPipelineLayout pipelineLayout;			// Layout of the compute pipeline
+		std::vector<VkPipeline> pipelines;			// Compute pipelines for image filters
+		int32_t pipelineIndex = 0;					// Current image filtering compute pipeline index
+	} compute;
+
 	struct PreDepthPass {
 		uint32_t width, height;
 		VkFramebuffer frameBuffer;
-		FrameBufferAttachment color, depth;
+		FrameBufferAttachment depth;
 		VkRenderPass renderPass;
 		VkDescriptorImageInfo descriptor;
+		VkPipelineLayout preDepthPipelineLayout;
+		VkPipeline preDepthPipeline;
 	} preDepthPass;
+
 
 	bool enableShadingRate = true;
 	bool colorShadingRate = false;
@@ -82,6 +103,11 @@ public:
 	void prepare();
 	virtual void render();
 	virtual void OnUpdateUIOverlay(vks::UIOverlay* overlay);
-	void preparePreDepth();
+	void preparePreDepthPass();
+	void preparePreDepthImage();
 	void createPreDepthPipeline();
+	void createPreDepthFrameBuffer();
+	void prepareComputeImage(uint32_t width, uint32_t height, VkFormat format);
+	void prepareComputePipeline();
+	void buildComputeCommandBuffer();
 };
